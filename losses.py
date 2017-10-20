@@ -24,7 +24,7 @@ class emd_loss(Module):
 
 
 class cramer_loss(Module):
-    def __init__(self):
+    def __init__(self): # why is this here?
         super(cramer_loss, self).__init__()
 
     def forward(self, input, target):
@@ -34,6 +34,8 @@ class cramer_loss(Module):
             torch.sum(torch.pow(torch.abs(input_cdf - target_cdf), 2)))
         return torch.mean(cramer_loss)
 
+
+# class dice_loss(Module):
 
 def square_torch_variable(t1_var, t2_var):
     return torch.mul((t1_var), (t2_var))
