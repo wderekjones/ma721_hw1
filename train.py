@@ -31,8 +31,8 @@ args = parser.parse_args()
 # n_bins is the number of class bins
 # num_epochs is the number of complete iterations over the data in batch_size increments
 
-num_epochs = 500
-batch_size = 100
+num_epochs = 50
+batch_size = 1000
 # look at loss performance by varying number of bins
 n_bins = 2
 input_shape = 92
@@ -45,7 +45,8 @@ data = KinaseDataset(data_path="/Users/derekjones2025/workspace/protein_binding/
                      protein_name_list=["lck"], features_list=features_list)
 # after loading the data, convert the labels to one-hot
 
-dataloader = DataLoader(data, batch_size=batch_size, num_workers=4, sampler=WeightedRandomSampler(weights=[0.02,50],num_samples=batch_size,replacement=True))
+# dataloader = DataLoader(data, batch_size=batch_size, num_workers=4, sampler=WeightedRandomSampler(weights=[0.02,50],num_samples=batch_size,replacement=True))
+dataloader = DataLoader(data, batch_size=batch_size, num_workers=4, shuffle=True)
 
 # import the baseline model from model.py
 model = Net(D_in=D_in, H=H, D_out=D_out, N=N)
@@ -53,10 +54,10 @@ model = Net(D_in=D_in, H=H, D_out=D_out, N=N)
 # write functions to do these initializations seperately for weights and biases, write tests for ill-conditioning
 # for child in model.children():
 #     for param in child.named_parameters():
-#         torch.nn.init.uniform(param[1], 1e-1, 5)
+#         torch.nn.init.uniform(param[1],9, 5)
 
-# loss_fn = emd_loss()
-# learning_rate =1e-3
+
+# learning_rate =1e-2
 # loss_fn = cramer_loss()
 # simulation_name = "cramer_loss_"+str(time.time())+".png"
 loss_fn = emd_loss()

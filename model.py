@@ -18,7 +18,7 @@ class Net(nn.Module):
         self.relu1 = nn.ReLU()
         # self.relu1 = nn.ReLU()
         self.fc2 = nn.Linear(self.H, self.D_out)
-        self.relu2 = nn.Softplus()
+        self.relu2 = nn.ReLU()
         self.softmax = nn.Softmax()
 
     def forward(self, x):

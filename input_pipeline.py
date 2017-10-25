@@ -9,6 +9,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.datasets import load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, Imputer
+from imblearn.over_sampling import SMOTE
 
 
 def load_data(data_path, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None, conformation=None):
@@ -88,13 +89,15 @@ class KinaseDataset(Dataset):
     def __init__(self, data_path, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None):
         self.data, self.labels = load_data(data_path=data_path, label=label, protein_name_list=protein_name_list, sample_size=sample_size,
                               features_list=features_list, mode=mode)
+        # is there a more efficient way to do this??
+        self.data, self.labels = SMOTE(ratio="minority").fit_sample(self.data,self.labels.flatten())
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
-        return torch.from_numpy(self.data[item]), torch.from_numpy(self.labels[item])
-
+        # return torch.from_numpy(self.data[item]), torch.from_numpy(self.labels[item])
+        return self.data[item], self.labels[item].flatten()
 
 def parse_features(feature_path, null_path=None):
     with open(feature_path, "r") as input_file:
