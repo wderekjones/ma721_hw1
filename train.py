@@ -22,8 +22,7 @@ from input_pipeline import KinaseDataset, parse_features
 from model import Net
 from utils import init_network
 
-# need to add validation metrics
-
+# TODO: add class weighted validation metrics for testing? should be easy x)
 parser = argparse.ArgumentParser()
 parser.add_argument("--data", type=str, help="path to data")
 parser.add_argument("--feats", type=str, help="path to features")
