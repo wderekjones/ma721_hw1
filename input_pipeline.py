@@ -8,41 +8,50 @@ from torch.utils.data import Dataset
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.datasets import load_diabetes
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, Imputer
-from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import StandardScaler, Imputer, normalize
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
+# TODO: load_data should be a method of the kinaseDataset class
 
-def load_data(data_path, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None, conformation=None):
+def load_data(data_path, split=None, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None, conformation=None):
+
     input_fo = h5py.File(data_path, 'r')
+    if split is not None and split == "train":
+        input_fo = input_fo['train']
+    elif split is not None and split == "test":
+        input_fo = input_fo['test']
+    else:
+        pass
 
-    X = np.ndarray([], dtype=np.float32)
-    y = np.ndarray([], dtype=np.float32)
+    X = np.ndarray([], dtype=float)
+    # use smaller precision for labels
+    y = np.ndarray([], dtype=float)
     i = 0
 
     if protein_name_list is None:
         protein_name_list = list(input_fo.keys())
     print("loading", len(protein_name_list), "proteins.")
     for protein_name in tqdm(protein_name_list):
-        x_, y_ = load_protein(data_path, label=label, protein_name=protein_name, sample_size=sample_size,
+        x_, y_ = load_protein(data_path, split=split, label=label, protein_name=protein_name, sample_size=sample_size,
                               features_list=features_list, mode=mode, conformation=conformation)
         if i == 0:
-            X = x_.astype(np.float32)
-            y = y_.astype(np.float32)
+            X = x_.astype(float)
+            y = y_.astype(float)
         else:
-            X = np.vstack((X, x_.astype(np.float32)))
-            y = np.vstack((y, y_.astype(np.float32)))
+            X = np.vstack((X, x_.astype(float)))
+            y = np.vstack((y, y_.astype(float)))
         i += 1
 
-    return StandardScaler().fit_transform(Imputer().fit_transform(X)), y
+    return X,y
 
 
-def load_protein(data_path, label=None, protein_name=None, sample_size=None, features_list=None, mode=None, conformation=None):
+def load_protein(data_path, split=None, label=None, protein_name=None, sample_size=None, features_list=None, mode=None, conformation=None):
     input_fo = h5py.File(data_path, 'r')
     if label is None:
         label = "label"
     # if features_list is none then use all of the features
     if features_list is None:
-        features_list = list(input_fo[str(protein_name)].keys())
+        features_list = list(input_fo[split][str(protein_name)].keys())
         if label in features_list:
             features_list.remove(label)
         if "receptor" in features_list:
@@ -53,7 +62,7 @@ def load_protein(data_path, label=None, protein_name=None, sample_size=None, fea
             features_list.remove("label")
 
         # in order to determine indices, select all of the labels and conformations, then seperately choose based on specifiedconditions, then find the intersection of the two sets.
-    full_labels = np.asarray(input_fo[str(protein_name)][label]).flatten()
+    full_labels = np.asarray(input_fo[split][str(protein_name)][label]).flatten()
     full_idxs = np.arange(0, full_labels.shape[0], 1)
 
     mode_idxs = []
@@ -75,29 +84,43 @@ def load_protein(data_path, label=None, protein_name=None, sample_size=None, fea
     i = 0
 
     for dataset in features_list:
-        data = np.asarray(input_fo[str(protein_name)][str(dataset)], dtype=np.float32)[sample]
+        data = np.asarray(input_fo[split][str(protein_name)][str(dataset)], dtype=float)[sample]
         data_array[:, i] = data[:, 0]
         i += 1
 
-    label_array = np.asarray(input_fo[str(protein_name)][label])[sample]
+    label_array = np.asarray(input_fo[split][str(protein_name)][label])[sample]
 
-    return data_array.astype(np.float32), label_array.astype(np.float32)
+    return data_array.astype(float), label_array.astype(float)
 
 
 class KinaseDataset(Dataset):
 
-    def __init__(self, data_path, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None):
-        self.data, self.labels = load_data(data_path=data_path, label=label, protein_name_list=protein_name_list, sample_size=sample_size,
+    def __init__(self, data_path,oversample=False, split=None, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None):
+        self.data, self.labels = load_data(data_path=data_path, split=split, label=label, protein_name_list=protein_name_list, sample_size=sample_size,
                               features_list=features_list, mode=mode)
-        # is there a more efficient way to do this??
-        self.data, self.labels = SMOTE(ratio="minority").fit_sample(self.data,self.labels.flatten())
+
+        # self.data = torch.from_numpy(StandardScaler().fit_transform(Imputer().fit_transform(self.data)))
+
+        # self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels))
+
+        if oversample is not None and oversample is True:
+
+            self.data = StandardScaler().fit_transform(Imputer().fit_transform(self.data))
+            self.data, self.labels = RandomOverSampler(ratio="minority").fit_sample(self.data, self.labels)
+            self.data = torch.from_numpy(self.data)
+            self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels.reshape(-1,1)))
+
+        else:
+            self.data = torch.from_numpy(StandardScaler().fit_transform(Imputer().fit_transform(self.data)))
+            self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels))
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, item):
-        # return torch.from_numpy(self.data[item]), torch.from_numpy(self.labels[item])
-        return self.data[item], self.labels[item].flatten()
+
+        return self.data[item], self.labels[item]
+
 
 def parse_features(feature_path, null_path=None):
     with open(feature_path, "r") as input_file:
