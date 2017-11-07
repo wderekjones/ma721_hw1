@@ -16,13 +16,13 @@ import multiprocessing
 torch.manual_seed(seed)
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
-from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, precision_recall_fscore_support
 from sklearn.model_selection import train_test_split
 from input_pipeline import KinaseDataset, parse_features
-from model import Net
-from utils import init_network
+from model import Net, deepNet
 
 # TODO: add class weighted validation metrics for testing? should be easy x)
+# TODO: roc curves or confusion matrices on the testing data, the latter should be more straightforward
 parser = argparse.ArgumentParser()
 parser.add_argument("--data", type=str, help="path to data")
 parser.add_argument("--feats", type=str, help="path to features")
@@ -31,10 +31,10 @@ parser.add_argument("--lr", type=float, help="learning rate", default=1e-3)
 parser.add_argument("--batch_sz", type=int, help="batch size", default=1)
 parser.add_argument("--null", type=str, help="path to null features")
 parser.add_argument("--ncores", type=int, help="number of cores to use for multiprocessing of training", default=multiprocessing.cpu_count())
-parser.add_argument("--oversample", type=int, help="whether to oversample the minority class", default=1)
+parser.add_argument("--oversample", type=bool, help="whether to oversample the minority class", default=False)
 
 
-def train(model, dataloader, validation_data, optimizer, epoch):
+def train(model, dataloader, val_dataloader, optimizer, epoch):
     train_losses = []
     train_precisions = []
     train_f1s = []
@@ -65,12 +65,6 @@ def train(model, dataloader, validation_data, optimizer, epoch):
         train_loss.backward()
         optimizer.step()
     stop_train_clock = time.clock()
-    # print("epoch: {} \t train_loss: {} \t train_accuracy: {} \t train_precision: {} \t train_recall: {} \t train_f1: {}".format(epoch,
-    #                                                                                               np.mean(train_losses),
-    #                                                                                               np.mean(train_accs),
-    #                                                                                               np.mean(train_precisions),
-    #                                                                                               np.mean(train_recalls),
-    #                                                                                               np.mean(train_f1s)))
 
     # witch the model to evaluation mode (training=False) in order to evaluate on the validation set
     model.eval()
@@ -139,7 +133,7 @@ if __name__ == '__main__':
 
     # load the training data, then further partition into training and validation sets, preserving the ratio of
     # positives to negative training examples
-    data = KinaseDataset(data_path=args.data, split="train", oversample=False, features_list=features_list,
+    data = KinaseDataset(data_path=args.data, split="train", oversample=args.oversample, features_list=features_list,
                          protein_name_list=['lck'])
     idxs = np.arange(0, len(data))
     train_idxs, val_idxs = train_test_split(idxs, stratify=data.labels.numpy(), random_state=seed)
@@ -150,14 +144,14 @@ if __name__ == '__main__':
     N, D_in, H, D_out = batch_size, data.data.shape[1], 5, n_bins
 
     # load the model
-    model = Net(D_in=D_in, H=H, D_out=D_out, N=N, p=0.7)
+    model = deepNet(D_in=D_in, H=H, D_out=D_out, N=N, p=0.6)
     # model = init_network(model)
     model.cuda()
 
     loss_fn = torch.nn.BCEWithLogitsLoss()
     loss_name = "bce"
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     start_clock = time.clock()
     epoch = 0
 
@@ -166,6 +160,10 @@ if __name__ == '__main__':
     print("null features: {}".format(args.null))
     print("ncores: {}".format(args.ncores))
     print("oversample: {}".format(args.oversample))
+
+    # print data information
+    print("n_features: {}".format(str(len(features_list))))
+    print("training data #examples: {} \t validation #examples: {}".format(len(train_idxs),len(val_idxs)))
 
     # print network description
     print("batch size: {} \t # hidden units: {} \t total # params: {}".format(args.batch_sz, model.get_n_hidden_units(),
@@ -221,13 +219,21 @@ if __name__ == '__main__':
 
     # evaluate on the testing data
     model.cpu().eval()
-    data = KinaseDataset(data_path=args.data, oversample=False, split="test", features_list=features_list,
+    test_data = KinaseDataset(data_path=args.data, oversample=False, split="test", features_list=features_list,
                          protein_name_list=["lck"])
-    test_y_probs = model(Variable(data.data.float(), requires_grad=False))
+    test_y_probs = model(Variable(test_data.data.float(), requires_grad=False))
     test_y_preds = np.argmax(test_y_probs.data.numpy(), axis=1)
-    y_test = np.argmax(data.labels.numpy(), axis=1)
-
+    y_test = np.argmax(test_data.labels.numpy(), axis=1)
+    print()
+    print("testing data # examples: {}".format(len(test_data)))
+    print("Unweighted performance metrics: ")
     print("Accuracy: {} \t F1-Score: {} \t Precision: {} \t Recall: {}".format(accuracy_score(y_test, test_y_preds),
                                                                                f1_score(y_test, test_y_preds),
                                                                                precision_score(y_test, test_y_preds),
                                                                                recall_score(y_test, test_y_preds)))
+    print()
+    print("----------------------------------------------------------------")
+    print("weighted performance metrics: ")
+    precision, recall, fscore, _ = precision_recall_fscore_support(y_test.flatten(), test_y_preds,
+                                                                   labels=[1])
+    print("Precision: {} \t Recall: {} \t F1-Score: {}".format(precision,recall,fscore))
