@@ -16,7 +16,8 @@ import multiprocessing
 torch.manual_seed(seed)
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
-from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, precision_recall_fscore_support
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, precision_recall_fscore_support, \
+    classification_report
 from sklearn.model_selection import train_test_split
 from input_pipeline import KinaseDataset, parse_features
 from model import Net, deepNet
@@ -31,7 +32,9 @@ parser.add_argument("--lr", type=float, help="learning rate", default=1e-3)
 parser.add_argument("--batch_sz", type=int, help="batch size", default=1)
 parser.add_argument("--null", type=str, help="path to null features")
 parser.add_argument("--ncores", type=int, help="number of cores to use for multiprocessing of training", default=multiprocessing.cpu_count())
-parser.add_argument("--oversample", type=bool, help="whether to oversample the minority class", default=False)
+parser.add_argument("--oversample", type=str, help="whether to oversample the minority class", default=None)
+parser.add_argument("--p", type=float,help="dropout probability", default=0.5)
+parser.add_argument("--model", type=str, help="name of model to use for training", default="Net")
 
 
 def train(model, dataloader, val_dataloader, optimizer, epoch):
@@ -95,7 +98,6 @@ def train(model, dataloader, val_dataloader, optimizer, epoch):
         val_accs.append(accuracy_score(val_y_test, val_y_pred))
     stop_val_clock = time.clock()
 
-
     print("epoch: {} \t val_loss: {} \t val_accuracy: {} \t val_precision: {} \t val_recall: {} \t val_f1: {}".format(epoch,
                                                                                                     np.mean(val_losses),
                                                                                                     np.mean(val_accs),
@@ -125,8 +127,8 @@ if __name__ == '__main__':
     batch_size = args.batch_sz
     learning_rate = args.lr
     n_bins = 2
-    num_workers = 1
-
+    protein_name_list = ["lck"]
+    num_workers = multiprocessing.cpu_count()
 
     # get the list of features by loading the full feature list and removing the nulls
     features_list = parse_features(args.feats, null_path=args.null)
@@ -134,7 +136,7 @@ if __name__ == '__main__':
     # load the training data, then further partition into training and validation sets, preserving the ratio of
     # positives to negative training examples
     data = KinaseDataset(data_path=args.data, split="train", oversample=args.oversample, features_list=features_list,
-                         protein_name_list=['lck'])
+                         protein_name_list=protein_name_list)
     idxs = np.arange(0, len(data))
     train_idxs, val_idxs = train_test_split(idxs, stratify=data.labels.numpy(), random_state=seed)
     train_dataloader = DataLoader(data, batch_size=batch_size, num_workers=num_workers, sampler=train_idxs)
@@ -144,8 +146,13 @@ if __name__ == '__main__':
     N, D_in, H, D_out = batch_size, data.data.shape[1], 5, n_bins
 
     # load the model
-    model = deepNet(D_in=D_in, H=H, D_out=D_out, N=N, p=0.6)
-    # model = init_network(model)
+    model = Net(D_in=D_in, H=H, D_out=D_out, N=N, p=args.p)
+    if args.model is not None:
+        if args.model == "deepNet":
+            model = deepNet(D_in=D_in, H=H, D_out=D_out, N=N, p=args.p)
+        elif args.model == "Net":
+            model = Net(D_in=D_in, H=H, D_out=D_out, N=N, p=args.p)
+
     model.cuda()
 
     loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -155,11 +162,15 @@ if __name__ == '__main__':
     start_clock = time.clock()
     epoch = 0
 
+    print("time_stamp: {}".format(time_stamp))
+    print()
+    print("model: {}".format(args.model))
     print("data: {}".format(args.data))
     print("features: {}".format(args.feats))
     print("null features: {}".format(args.null))
     print("ncores: {}".format(args.ncores))
     print("oversample: {}".format(args.oversample))
+    print("epochs: {}".format(args.epochs))
 
     # print data information
     print("n_features: {}".format(str(len(features_list))))
@@ -169,7 +180,7 @@ if __name__ == '__main__':
     print("batch size: {} \t # hidden units: {} \t total # params: {}".format(args.batch_sz, model.get_n_hidden_units(),
                                                                               model.get_n_params))
     # output optimization details
-    regularization = "dropout"
+    regularization = "dropout: drop_prob = "+str(args.p)
     initialization = "uniform"
 
     print("optimizer: {} \t lr: {} \t initialization: {} \t regularization: {}".format("adam", args.lr, initialization,
@@ -219,8 +230,8 @@ if __name__ == '__main__':
 
     # evaluate on the testing data
     model.cpu().eval()
-    test_data = KinaseDataset(data_path=args.data, oversample=False, split="test", features_list=features_list,
-                         protein_name_list=["lck"])
+    test_data = KinaseDataset(data_path=args.data, oversample=None, split="test", features_list=features_list,
+                         protein_name_list=protein_name_list)
     test_y_probs = model(Variable(test_data.data.float(), requires_grad=False))
     test_y_preds = np.argmax(test_y_probs.data.numpy(), axis=1)
     y_test = np.argmax(test_data.labels.numpy(), axis=1)
@@ -234,6 +245,10 @@ if __name__ == '__main__':
     print()
     print("----------------------------------------------------------------")
     print("weighted performance metrics: ")
-    precision, recall, fscore, _ = precision_recall_fscore_support(y_test.flatten(), test_y_preds,
+    precision, recall, fscore, _ = precision_recall_fscore_support(y_test, test_y_preds,
                                                                    labels=[1])
     print("Precision: {} \t Recall: {} \t F1-Score: {}".format(precision,recall,fscore))
+
+    print()
+    print("----------------------------------------------------------------")
+    print(classification_report(y_test,test_y_preds))

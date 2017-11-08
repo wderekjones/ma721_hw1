@@ -95,21 +95,24 @@ def load_protein(data_path, split=None, label=None, protein_name=None, sample_si
 
 class KinaseDataset(Dataset):
 
-    def __init__(self, data_path,oversample=False, split=None, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None):
+    def __init__(self, data_path,oversample=None, split=None, label=None, protein_name_list=None, sample_size=None, features_list=None, mode=None):
         self.data, self.labels = load_data(data_path=data_path, split=split, label=label, protein_name_list=protein_name_list, sample_size=sample_size,
                               features_list=features_list, mode=mode)
 
-        # self.data = torch.from_numpy(StandardScaler().fit_transform(Imputer().fit_transform(self.data)))
-
-        # self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels))
-
-        if oversample is not None and oversample is True:
-
-            self.data = StandardScaler().fit_transform(Imputer().fit_transform(self.data))
-            self.data, self.labels = RandomOverSampler(ratio="minority").fit_sample(self.data, self.labels)
-            self.data = torch.from_numpy(self.data)
-            self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels.reshape(-1,1)))
-
+        if oversample is not None:
+            if oversample == "smote":
+                self.data = StandardScaler().fit_transform(Imputer().fit_transform(self.data))
+                self.data, self.labels = SMOTE(ratio="minority").fit_sample(self.data, self.labels)
+                self.data = torch.from_numpy(self.data)
+                self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels.reshape(-1,1)))
+                
+            elif oversample == "random":
+                self.data = StandardScaler().fit_transform(Imputer().fit_transform(self.data))
+                self.data, self.labels = RandomOverSampler(ratio="minority").fit_sample(self.data, self.labels)
+                self.data = torch.from_numpy(self.data)
+                self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels.reshape(-1, 1)))
+            else:
+                print("this method of oversampling has not been implemented")
         else:
             self.data = torch.from_numpy(StandardScaler().fit_transform(Imputer().fit_transform(self.data)))
             self.labels = torch.from_numpy(OneHotEncoder(sparse=False).fit_transform(self.labels))
